@@ -1,6 +1,12 @@
 import math
+import csv
+from pathlib import Path
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+BASE_DIR = Path(__file__).resolve().parent
 
 # ============================================================
 # Question 1: Exercise 6.11 - Overrelaxation
@@ -31,7 +37,13 @@ def solve_relax(c=2.0, x=1.0, omega=0.0, tol=1e-6):
     raise RuntimeError("No convergence")
 
 
+reference_root = solve_relax(omega=0.685, tol=1e-13)[0]
+reference_slope = fp_relax(reference_root)
+optimal_omega = reference_slope / (1.0 - reference_slope)
+
 print("QUESTION 1")
+print("reference root =", reference_root)
+print("locally optimal omega =", optimal_omega)
 for w in [0.0, 0.5, 0.68, 0.685]:
     x, n, e = solve_relax(omega=w)
     print(w, x, n, e)
@@ -181,7 +193,7 @@ plt.ylabel("$y$")
 plt.title(r"Numerical Gradient Descent on $f(x,y)=(x-2)^2+(y-2)^2$")
 plt.legend()
 plt.tight_layout()
-plt.savefig("gradient_descent_test.png", dpi=200, bbox_inches="tight")
+plt.savefig(BASE_DIR / "gradient_descent_test.png", dpi=200, bbox_inches="tight")
 plt.close()
 
 
@@ -190,7 +202,9 @@ plt.close()
 # ============================================================
 # The supplied assignment data file must be in the same directory.
 
-data = np.loadtxt("smf_cosmos.dat")
+# Columns: log10(galaxy mass), measured mass function, uncertainty.
+# The mass ratio is 10**(logM - log_M_star).
+data = np.loadtxt(BASE_DIR / "smf_cosmos.dat")
 logM, nobs, sigma = data.T
 
 
@@ -252,18 +266,18 @@ print("chi2 =", chi2(best))
 
 # Plot chi^2 versus gradient-descent step for all three starts.
 plt.figure(figsize=(7, 5))
-for i, history in enumerate(histories, 1):
+for start, history in zip(starts, histories):
     plt.semilogy(
         np.arange(len(history)),
         history,
-        label=f"start {i}",
+        label="(" + ", ".join(f"{value:.1f}" for value in start) + ")",
     )
 
 plt.xlabel("Gradient-descent step $i$")
 plt.ylabel(r"$\chi^2$")
-plt.legend()
+plt.legend(title=r"Start $(\log_{10}\phi^*, \log_{10}M^*, \alpha)$", fontsize=9)
 plt.tight_layout()
-plt.savefig("chi2_vs_step.png", dpi=200, bbox_inches="tight")
+plt.savefig(BASE_DIR / "chi2_vs_step.png", dpi=200, bbox_inches="tight")
 plt.close()
 
 
@@ -289,5 +303,51 @@ plt.xlabel(r"$M_{\rm gal}$")
 plt.ylabel(r"$n(M_{\rm gal})$")
 plt.legend()
 plt.tight_layout()
-plt.savefig("schechter_fit.png", dpi=200, bbox_inches="tight")
+plt.savefig(BASE_DIR / "schechter_fit.png", dpi=200, bbox_inches="tight")
 plt.close()
+
+
+# Export the per-start results; the LaTeX writeup reads this generated table.
+rows = []
+for start, solution, history in zip(starts, solutions, histories):
+    rows.append([
+        *start, *solution, 10.0 ** solution[0], 10.0 ** solution[1],
+        history[-1], len(history) - 1,
+    ])
+
+with (BASE_DIR / "schechter_results.csv").open("w", newline="") as handle:
+    csv_writer = csv.writer(handle)
+    csv_writer.writerow([
+        "start_log10_phi", "start_log10_M", "start_alpha",
+        "log10_phi", "log10_M", "alpha", "phi_star", "M_star",
+        "chi_squared", "accepted_steps",
+    ])
+    csv_writer.writerows(rows)
+
+table_lines = [
+    r"\begin{table}[H]",
+    r"\centering",
+    r"\small",
+    r"\begin{tabular}{lcccc}",
+    r"\toprule",
+    r"Starting point & $\phi^*$ & $M^*$ & $\alpha$ & $\chi^2$\\",
+    r"\midrule",
+]
+for start, solution, history in zip(starts, solutions, histories):
+    label = "(" + ",".join(f"{value:.1f}" for value in start) + ")"
+    phi = 10.0 ** solution[0]
+    mass = 10.0 ** solution[1]
+    table_lines.append(
+        f"${label}$ & ${phi * 1e3:.6f}\\times10^{{-3}}$ & "
+        f"${mass / 1e10:.6f}\\times10^{{10}}$ & "
+        f"${solution[2]:.6f}$ & ${history[-1]:.6f}$" + r"\\"
+    )
+table_lines.extend([
+    r"\bottomrule",
+    r"\end{tabular}",
+    r"\caption{Schechter-fit parameters and objective values from each initial guess.}",
+    r"\label{tab:starts}",
+    r"\end{table}",
+])
+(BASE_DIR / "schechter_results.tex").write_text("\n".join(table_lines) + "\n")
+print("Saved all figures, schechter_results.csv, and schechter_results.tex in", BASE_DIR)
